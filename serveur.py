@@ -56,7 +56,7 @@ class CustomServer:
 
                 if msg.command == "MSG":
                     # diffuse dans la room actuelle
-                    self.broadcast(f"MSG|{pseudo}|{msg.args[0]}", room=room, sender_socket=sclient)
+                    self.broadcast(f"MSG|{pseudo}|{msg.args[0]}", room=room)
 
                 elif msg.command == "ROOM":
                     old_room = room
