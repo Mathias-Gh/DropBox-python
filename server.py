@@ -282,3 +282,66 @@ class DropBoxServer:
                 }
                 for room in self.available_rooms
             ]
+    
+    def _send_to_client(self, pseudo: str, message: str) -> bool:
+        """Envoie un message à un client spécifique"""
+        with self.lock:
+            if pseudo not in self.clients:
+                return False
+            client = self.clients[pseudo]
+        
+        try:
+            client.socket.send(f"ADMIN_MSG \"{message}\"\n".encode('utf-8'))
+            return True
+        except Exception as e:
+            print(f"Erreur envoi à {pseudo}: {e}")
+            return False
+    
+    def broadcast_all(self, message: str) -> int:
+        """Envoie un message à tous les clients connectés"""
+        count = 0
+        with self.lock:
+            pseudos = list(self.clients.keys())
+        
+        for pseudo in pseudos:
+            if self._send_to_client(pseudo, message):
+                count += 1
+        
+        self._notify_listeners("broadcast_sent", {
+            "type": "all", 
+            "message": message, 
+            "recipients": count
+        })
+        return count
+    
+    def broadcast_room(self, room: str, message: str) -> int:
+        """Envoie un message à tous les clients d'une room"""
+        count = 0
+        with self.lock:
+            if room not in self.rooms:
+                return 0
+            pseudos = list(self.rooms[room])
+        
+        for pseudo in pseudos:
+            if self._send_to_client(pseudo, message):
+                count += 1
+        
+        self._notify_listeners("broadcast_sent", {
+            "type": "room", 
+            "room": room,
+            "message": message, 
+            "recipients": count
+        })
+        return count
+    
+    def send_private_message(self, pseudo: str, message: str) -> bool:
+        """Envoie un message privé à un client spécifique"""
+        success = self._send_to_client(pseudo, message)
+        
+        self._notify_listeners("broadcast_sent", {
+            "type": "private", 
+            "pseudo": pseudo,
+            "message": message, 
+            "recipients": 1 if success else 0
+        })
+        return success

@@ -17,8 +17,13 @@ class AdminDashboard:
         self.clients_table: ft.DataTable = None
         self.rooms_column: ft.Column = None
         self.status_text: ft.Text = None
-        self.server_button: ft.ElevatedButton = None
+        self.server_button: ft.Button = None
         self.logs_column: ft.Column = None
+        
+        # Composants broadcast
+        self.broadcast_type: ft.Dropdown = None
+        self.broadcast_target: ft.TextField = None
+        self.broadcast_message: ft.TextField = None
         
         # S'abonner aux événements du serveur
         self.server.add_listener(self._on_server_event)
@@ -43,7 +48,8 @@ class AdminDashboard:
             "client_disconnected": "👤⬅️",
             "client_joined_room": "🚪",
             "client_left_room": "🚶",
-            "message_sent": "💬"
+            "message_sent": "💬",
+            "broadcast_sent": "📢"
         }
         
         icon = event_icons.get(event, "📋")
@@ -147,6 +153,69 @@ class AdminDashboard:
             )
             self.page.snack_bar.open = True
             self._refresh_data()
+    
+    def _on_broadcast_type_change(self, e):
+        """Gère le changement de type de broadcast"""
+        broadcast_type = self.broadcast_type.value
+        if broadcast_type == "all":
+            self.broadcast_target.visible = False
+            self.broadcast_target.label = ""
+        elif broadcast_type == "room":
+            self.broadcast_target.visible = True
+            self.broadcast_target.label = "Nom de la room"
+        else:  # private
+            self.broadcast_target.visible = True
+            self.broadcast_target.label = "Pseudo du client"
+        self.page.update()
+    
+    def _send_broadcast(self, e):
+        """Envoie un message broadcast"""
+        message = self.broadcast_message.value
+        if not message:
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Text("❌ Veuillez entrer un message"),
+                bgcolor=ft.Colors.RED_700
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+        
+        broadcast_type = self.broadcast_type.value
+        target = self.broadcast_target.value
+        
+        if broadcast_type == "all":
+            count = self.server.broadcast_all(message)
+            result_msg = f"📢 Message envoyé à {count} client(s)"
+        elif broadcast_type == "room":
+            if not target:
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text("❌ Veuillez spécifier une room"),
+                    bgcolor=ft.Colors.RED_700
+                )
+                self.page.snack_bar.open = True
+                self.page.update()
+                return
+            count = self.server.broadcast_room(target, message)
+            result_msg = f"📢 Message envoyé à {count} client(s) dans {target}"
+        else:  # private
+            if not target:
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text("❌ Veuillez spécifier un pseudo"),
+                    bgcolor=ft.Colors.RED_700
+                )
+                self.page.snack_bar.open = True
+                self.page.update()
+                return
+            success = self.server.send_private_message(target, message)
+            result_msg = f"📢 Message privé {'envoyé' if success else 'échoué'} à {target}"
+        
+        self.page.snack_bar = ft.SnackBar(
+            content=ft.Text(result_msg),
+            bgcolor=ft.Colors.GREEN_700 if "envoyé" in result_msg else ft.Colors.RED_700
+        )
+        self.page.snack_bar.open = True
+        self.broadcast_message.value = ""
+        self.page.update()
     
     def _toggle_server(self, e):
         """Démarre/arrête le serveur"""
@@ -256,6 +325,52 @@ class AdminDashboard:
             width=250,
         )
         
+        # Section Broadcast
+        self.broadcast_type = ft.Dropdown(
+            label="Type",
+            value="all",
+            options=[
+                ft.dropdown.Option("all", "📢 Tous"),
+                ft.dropdown.Option("room", "🚪 Room"),
+                ft.dropdown.Option("private", "👤 Privé"),
+            ],
+            width=150,
+        )
+        
+        self.broadcast_target = ft.TextField(
+            label="Cible (room ou pseudo)",
+            hint_text="Optionnel pour 'Tous'",
+            width=180,
+        )
+        
+        self.broadcast_message = ft.TextField(
+            label="Message",
+            expand=True,
+            multiline=False,
+        )
+        
+        broadcast_section = ft.Container(
+            content=ft.Column([
+                ft.Text("📢 Broadcast", size=16, weight=ft.FontWeight.BOLD),
+                ft.Container(
+                    content=ft.Row([
+                        self.broadcast_type,
+                        self.broadcast_target,
+                        self.broadcast_message,
+                        ft.IconButton(
+                            icon=ft.Icons.SEND,
+                            icon_color=ft.Colors.BLUE_400,
+                            tooltip="Envoyer",
+                            on_click=self._send_broadcast,
+                        ),
+                    ], spacing=10),
+                    bgcolor=ft.Colors.SURFACE_CONTAINER,
+                    border_radius=10,
+                    padding=15,
+                ),
+            ], spacing=5),
+        )
+        
         # Logs
         self.logs_column = ft.Column(
             spacing=3,
@@ -285,7 +400,9 @@ class AdminDashboard:
             header,
             ft.Container(height=20),
             main_content,
-            ft.Container(height=20),
+            ft.Container(height=15),
+            broadcast_section,
+            ft.Container(height=15),
             logs_section,
         )
 
