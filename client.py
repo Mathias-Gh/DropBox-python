@@ -1,32 +1,6 @@
 import socket
 import threading
 import flet as ft
-
-SERVER_IP = "127.0.0.1"
-SERVER_PORT = 54321
-
-def main(page: ft.Page):
-    page.title = "Chat TCP - Flet"
-    page.window_width = 500
-    page.window_height = 600
-
-    sclient = None
-    pseudo = ""
-    room = None  # room par défaut
-
-    pseudo_field = ft.TextField(label="Pseudo", width=300)
-    messages = ft.Column(scroll="auto", expand=True)
-    status = ft.Text("Déconnecté", color="red")
-    message_field = ft.TextField(label="Message", width=350)
-
-    room_buttons = ft.Row([
-        ft.ElevatedButton("Room 1", on_click=lambda e: changer_room("room1")),
-        ft.ElevatedButton("Room 2", on_click=lambda e: changer_room("room2")),
-        ft.ElevatedButton("Room 3", on_click=lambda e: changer_room("room3")),
-    ])
-import socket
-import threading
-import flet as ft
 from network import protocol as proto
 import base64
 import uuid
@@ -45,6 +19,9 @@ def main(page: ft.Page):
     sclient = None
     pseudo = ""
     room = None  # room par défaut
+    
+    # Tracker les fichiers disponibles par room
+    files_by_room = {}  # Format: {"room1": {"seq": "...", "filename": "...", "uploader": "..."}, ...}
 
     pseudo_field = ft.TextField(label="Pseudo", width=300)
     messages = ft.Column(scroll="auto", expand=True)
@@ -59,6 +36,46 @@ def main(page: ft.Page):
 
     # Text input for file path (no FilePicker to avoid compatibility issues)
     file_path_field = ft.TextField(label="Chemin du fichier à envoyer", width=350)
+    
+    # Button to download last file in current room
+    last_file_status = ft.Text("Aucun fichier dans cette room", color="grey", size=12)
+    download_button = ft.ElevatedButton(content=ft.Text("Télécharger dernier fichier"), on_click=download_last_file_from_room, disabled=True)
+    
+    def download_last_file_from_room(e=None):
+        nonlocal sclient
+        if not sclient:
+            status.value = "Connectez-vous d'abord"
+            status.color = "red"
+            page.update()
+            return
+        if not room:
+            status.value = "Rejoignez une room d'abord"
+            status.color = "red"
+            page.update()
+            return
+        
+        if room not in files_by_room:
+            status.value = f"Aucun fichier disponible dans {room}"
+            status.color = "orange"
+            page.update()
+            return
+        
+        file_info = files_by_room[room]
+        seq = file_info.get("seq")
+        fname = file_info.get("filename")
+        
+        req = {"type": "GET_FILE", "seq": seq, "filename": fname}
+        try:
+            proto.send_json(sclient, req)
+            print(f"[CLIENT] GET_FILE envoyé pour {fname}")
+            status.value = f"Téléchargement de {fname}..."
+            status.color = "blue"
+            page.update()
+        except Exception as ex:
+            print(f"[CLIENT] Erreur GET_FILE: {ex}")
+            status.value = f"Erreur lors du téléchargement: {ex}"
+            status.color = "red"
+            page.update()
 
     def send_file_from_path(e=None):
         nonlocal sclient
@@ -126,6 +143,18 @@ def main(page: ft.Page):
             messages.controls.append(ft.Text(f"** Changement de room : {old_room} -> {room} **", italic=True, color="grey"))
         else:
             messages.controls.append(ft.Text(f"** Vous êtes dans {room} **", italic=True, color="grey"))
+        
+        # Update last file status when changing room
+        if room in files_by_room:
+            file_info = files_by_room[room]
+            last_file_status.value = f"Dernier fichier: {file_info.get('filename')} ({file_info.get('uploader')})"
+            last_file_status.color = "green"
+            download_button.disabled = False
+        else:
+            last_file_status.value = "Aucun fichier dans cette room"
+            last_file_status.color = "grey"
+            download_button.disabled = True
+        
         page.update()
 
     def recevoir():
@@ -149,7 +178,20 @@ def main(page: ft.Page):
                         meta = payload.get("meta", {})
                         fname = meta.get("filename")
                         uploader = payload.get("uploader")
-                        print(f"[CLIENT] FILE_AVAILABLE: uploader={uploader}, fname={fname}, seq={seq}")
+                        room_name = payload.get("room")
+                        print(f"[CLIENT] FILE_AVAILABLE: uploader={uploader}, fname={fname}, seq={seq}, room={room_name}")
+
+                        # Store file info for this room
+                        if room_name:
+                            files_by_room[room_name] = {
+                                "seq": seq,
+                                "filename": fname,
+                                "uploader": uploader,
+                            }
+                            # Update UI if this is the current room
+                            if room == room_name:
+                                last_file_status.value = f"Dernier fichier: {fname} ({uploader})"
+                                last_file_status.color = "green"
 
                         def on_download_click(e, seq=seq, fname=fname):
                             req = {"type": "GET_FILE", "seq": seq, "filename": fname}
@@ -238,8 +280,12 @@ def main(page: ft.Page):
         pseudo_field,
         room_buttons,
         ft.ElevatedButton(content=ft.Text("Se connecter"), on_click=connecter),
+        ft.Divider(),
+        ft.Text("Partage de fichiers", size=18, weight="bold"),
         file_path_field,
         ft.ElevatedButton(content=ft.Text("Envoyer un fichier"), on_click=send_file_from_path),
+        last_file_status,
+        ft.ElevatedButton(content=ft.Text("Télécharger dernier fichier"), on_click=download_last_file_from_room),
         status,
         ft.Divider(),
         ft.Text("Messages", size=18),
