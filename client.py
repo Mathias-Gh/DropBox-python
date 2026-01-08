@@ -28,6 +28,10 @@ import socket
 import threading
 import flet as ft
 from network import protocol as proto
+import base64
+import uuid
+import os
+import json
 
 SERVER_IP = "127.0.0.1"
 SERVER_PORT = 54321
@@ -52,6 +56,41 @@ def main(page: ft.Page):
         ft.ElevatedButton(content=ft.Text("Room 2"), on_click=lambda e: changer_room("room2")),
         ft.ElevatedButton(content=ft.Text("Room 3"), on_click=lambda e: changer_room("room3")),
     ])
+
+    # File picker for sending files
+    file_picker = ft.FilePicker()
+    page.overlay.append(file_picker)
+
+    def on_file_result(e: ft.FilePickerResultEvent):
+        nonlocal sclient
+        if not sclient:
+            status.value = "Connectez-vous d'abord"
+            status.color = "red"
+            page.update()
+            return
+        if not e.files:
+            return
+        path = e.files[0].path
+        try:
+            with open(path, "rb") as f:
+                b = f.read()
+            b64 = base64.b64encode(b).decode("ascii")
+            obj = {
+                "type": "SEND_FILE",
+                "seq": uuid.uuid4().hex,
+                "room": room,
+                "meta": {"filename": os.path.basename(path), "size": len(b)},
+                "data": b64,
+            }
+            proto.send_json(sclient, obj)
+            messages.controls.append(ft.Text(f"** Fichier envoyé : {os.path.basename(path)} ({len(b)} octets) **", italic=True, color="green"))
+            page.update()
+        except Exception as ex:
+            status.value = f"Erreur envoi fichier: {ex}"
+            status.color = "red"
+            page.update()
+
+    file_picker.on_result = on_file_result
 
     # ----------------------------
     # Fonctions
