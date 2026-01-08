@@ -57,19 +57,22 @@ def main(page: ft.Page):
         ft.ElevatedButton(content=ft.Text("Room 3"), on_click=lambda e: changer_room("room3")),
     ])
 
-    # File picker for sending files (may not be available in older flet)
-    file_picker = None
-    file_path_field = None
-    def on_file_result(e: ft.FilePickerResultEvent):
+    # Fallback UI: text field to paste a path and a button to send (no FilePicker)
+    file_path_field = ft.TextField(label="Chemin fichier (fallback)", width=300)
+
+    def send_file_from_path(e=None):
         nonlocal sclient
         if not sclient:
             status.value = "Connectez-vous d'abord"
             status.color = "red"
             page.update()
             return
-        if not e.files:
+        path = file_path_field.value
+        if not path or not os.path.isfile(path):
+            status.value = "Chemin invalide"
+            status.color = "red"
+            page.update()
             return
-        path = e.files[0].path
         try:
             with open(path, "rb") as f:
                 b = f.read()
@@ -88,50 +91,6 @@ def main(page: ft.Page):
             status.value = f"Erreur envoi fichier: {ex}"
             status.color = "red"
             page.update()
-
-    file_picker.on_result = on_file_result
-
-    # If FilePicker control is not available in this flet version, provide a fallback
-    try:
-        if file_picker is None:
-            file_picker = ft.FilePicker()
-            page.overlay.append(file_picker)
-            file_picker.on_result = on_file_result
-    except Exception:
-        # Fallback UI: text field to paste a path and a button to send
-        file_path_field = ft.TextField(label="Chemin fichier (fallback)", width=300)
-
-        def send_file_from_path(e=None):
-            nonlocal sclient
-            if not sclient:
-                status.value = "Connectez-vous d'abord"
-                status.color = "red"
-                page.update()
-                return
-            path = file_path_field.value
-            if not path or not os.path.isfile(path):
-                status.value = "Chemin invalide"
-                status.color = "red"
-                page.update()
-                return
-            try:
-                with open(path, "rb") as f:
-                    b = f.read()
-                b64 = base64.b64encode(b).decode("ascii")
-                obj = {
-                    "type": "SEND_FILE",
-                    "seq": uuid.uuid4().hex,
-                    "room": room,
-                    "meta": {"filename": os.path.basename(path), "size": len(b)},
-                    "data": b64,
-                }
-                proto.send_json(sclient, obj)
-                messages.controls.append(ft.Text(f"** Fichier envoyé : {os.path.basename(path)} ({len(b)} octets) **", italic=True, color="green"))
-                page.update()
-            except Exception as ex:
-                status.value = f"Erreur envoi fichier: {ex}"
-                status.color = "red"
-                page.update()
 
 
     # ----------------------------
@@ -211,9 +170,9 @@ def main(page: ft.Page):
         pseudo_field,
         room_buttons,
         ft.ElevatedButton(content=ft.Text("Se connecter"), on_click=connecter),
-        ft.ElevatedButton(content=ft.Text("Envoyer un fichier"), on_click=lambda e: (file_picker.pick_files() if file_picker else send_file_from_path(e))),
+        ft.ElevatedButton(content=ft.Text("Envoyer un fichier (path)"), on_click=send_file_from_path),
         status,
-        ft.Row([file_path_field, ft.ElevatedButton(content=ft.Text("Envoyer (path)"), on_click=send_file_from_path)]) if file_path_field else ft.Container(),
+        ft.Row([file_path_field, ft.ElevatedButton(content=ft.Text("Envoyer (path)"), on_click=send_file_from_path)]),
         ft.Divider(),
         ft.Text("Messages", size=18),
         messages,
