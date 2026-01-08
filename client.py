@@ -169,6 +169,7 @@ def main(page: ft.Page):
         pseudo_field,
         room_buttons,
         ft.ElevatedButton(content=ft.Text("Se connecter"), on_click=connecter),
+        ft.ElevatedButton(content=ft.Text("Envoyer un fichier"), on_click=lambda e: file_picker.pick_files()),
         status,
         ft.Divider(),
         ft.Text("Messages", size=18),
