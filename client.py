@@ -1,9 +1,11 @@
 import socket
 import threading
 import flet as ft
+from network import protocol as proto
 
 SERVER_IP = "127.0.0.1"
 SERVER_PORT = 54321
+
 
 def main(page: ft.Page):
     page.title = "Chat TCP - Flet"
@@ -20,9 +22,9 @@ def main(page: ft.Page):
     message_field = ft.TextField(label="Message", width=350)
 
     room_buttons = ft.Row([
-        ft.ElevatedButton("Room 1", on_click=lambda e: changer_room("room1")),
-        ft.ElevatedButton("Room 2", on_click=lambda e: changer_room("room2")),
-        ft.ElevatedButton("Room 3", on_click=lambda e: changer_room("room3")),
+        ft.ElevatedButton(content=ft.Text("Room 1"), on_click=lambda e: changer_room("room1")),
+        ft.ElevatedButton(content=ft.Text("Room 2"), on_click=lambda e: changer_room("room2")),
+        ft.ElevatedButton(content=ft.Text("Room 3"), on_click=lambda e: changer_room("room3")),
     ])
 
     # ----------------------------
@@ -37,7 +39,7 @@ def main(page: ft.Page):
             return
         old_room = room
         room = new_room
-        sclient.send(f"ROOM|{room}".encode())
+        proto.send_message(sclient, f"ROOM|{room}".encode())
         status.value = f"Vous êtes dans {room}"
         status.color = "blue"
         if old_room:
@@ -49,7 +51,7 @@ def main(page: ft.Page):
     def recevoir():
         while True:
             try:
-                data = sclient.recv(4096).decode()
+                data = proto.recv_message(sclient).decode()
                 if not data:
                     break
                 parts = data.split("|")
@@ -96,7 +98,7 @@ def main(page: ft.Page):
                 elif parts[0] == "SYSTEM":
                     messages.controls.append(ft.Text(parts[1], italic=True, color="grey"))
                 page.update()
-            except:
+            except Exception:
                 break
 
     def connecter(e):
@@ -117,8 +119,8 @@ def main(page: ft.Page):
             page.update()
             return
 
-        # login sans room
-        sclient.send(f"LOGIN|{pseudo}".encode())
+        # login sans room (use framing)
+        proto.send_message(sclient, f"LOGIN|{pseudo}".encode())
         status.value = f"Connecté en tant que {pseudo}"
         status.color = "green"
         threading.Thread(target=recevoir, daemon=True).start()
@@ -130,7 +132,7 @@ def main(page: ft.Page):
         msg = message_field.value.strip()
         if not msg:
             return
-        sclient.send(f"MSG|{msg}".encode())
+        proto.send_message(sclient, f"MSG|{msg}".encode())
         message_field.value = ""
         page.update()
 
@@ -139,12 +141,12 @@ def main(page: ft.Page):
         ft.Text("Connexion", size=20, weight="bold"),
         pseudo_field,
         room_buttons,
-        ft.ElevatedButton("Se connecter", on_click=connecter),
+        ft.ElevatedButton(content=ft.Text("Se connecter"), on_click=connecter),
         status,
         ft.Divider(),
         ft.Text("Messages", size=18),
         messages,
-        ft.Row([message_field, ft.ElevatedButton("Envoyer", on_click=envoyer)])
+        ft.Row([message_field, ft.ElevatedButton(content=ft.Text("Envoyer"), on_click=envoyer)])
     ], expand=True))
 
 ft.app(target=main)
