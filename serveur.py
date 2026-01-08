@@ -352,5 +352,13 @@ class CustomServer:
 
 
 if __name__ == "__main__":
+    print("=" * 60)
+    print("🚀 LANCEMENT DU SERVEUR TCP")
+    print("=" * 60)
+    print("📝 Pour lancer le serveur : python serveur.py")
+    print("👤 Pour lancer un client : python client.py")
+    print("=" * 60)
+    print()
+    
     srv = CustomServer()
     srv.start()
