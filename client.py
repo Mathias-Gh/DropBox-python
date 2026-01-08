@@ -57,8 +57,8 @@ def main(page: ft.Page):
         ft.ElevatedButton(content=ft.Text("Room 3"), on_click=lambda e: changer_room("room3")),
     ])
 
-    # Fallback UI: text field to paste a path and a button to send (no FilePicker)
-    file_path_field = ft.TextField(label="Chemin fichier (fallback)", width=300)
+    # Text input for file path (no FilePicker to avoid compatibility issues)
+    file_path_field = ft.TextField(label="Chemin du fichier à envoyer", width=350)
 
     def send_file_from_path(e=None):
         nonlocal sclient
@@ -67,9 +67,19 @@ def main(page: ft.Page):
             status.color = "red"
             page.update()
             return
-        path = file_path_field.value
-        if not path or not os.path.isfile(path):
-            status.value = "Chemin invalide"
+        if not room:
+            status.value = "Rejoignez une room d'abord"
+            status.color = "red"
+            page.update()
+            return
+        path = file_path_field.value.strip()
+        if not path:
+            status.value = "Chemin vide"
+            status.color = "red"
+            page.update()
+            return
+        if not os.path.isfile(path):
+            status.value = f"Fichier introuvable: {path}"
             status.color = "red"
             page.update()
             return
@@ -77,20 +87,24 @@ def main(page: ft.Page):
             with open(path, "rb") as f:
                 b = f.read()
             b64 = base64.b64encode(b).decode("ascii")
+            seq_id = uuid.uuid4().hex
             obj = {
                 "type": "SEND_FILE",
-                "seq": uuid.uuid4().hex,
+                "seq": seq_id,
                 "room": room,
                 "meta": {"filename": os.path.basename(path), "size": len(b)},
                 "data": b64,
             }
+            print(f"[CLIENT] Envoi SEND_FILE: seq={seq_id}, room={room}, filename={os.path.basename(path)}")
             proto.send_json(sclient, obj)
             messages.controls.append(ft.Text(f"** Fichier envoyé : {os.path.basename(path)} ({len(b)} octets) **", italic=True, color="green"))
+            file_path_field.value = ""
             page.update()
         except Exception as ex:
             status.value = f"Erreur envoi fichier: {ex}"
             status.color = "red"
             page.update()
+            print(f"[CLIENT] Erreur: {ex}")
 
 
     # ----------------------------
@@ -117,16 +131,70 @@ def main(page: ft.Page):
     def recevoir():
         while True:
             try:
-                data = proto.recv_message(sclient).decode()
-                if not data:
+                raw = proto.recv_message(sclient)
+                if not raw:
                     break
-                parts = data.split("|")
-                if parts[0] == "MSG":
-                    messages.controls.append(ft.Text(f"{parts[1]} : {parts[2]}"))
-                elif parts[0] == "SYSTEM":
-                    messages.controls.append(ft.Text(parts[1], italic=True, color="grey"))
-                page.update()
-            except Exception:
+                text = None
+                try:
+                    payload = json.loads(raw.decode())
+                except Exception as e:
+                    payload = None
+                    print(f"[CLIENT] Erreur JSON decode: {e}")
+
+                if payload:
+                    t = payload.get("type")
+                    print(f"[CLIENT] Reçu: type={t}, payload={payload}")
+                    if t == "FILE_AVAILABLE":
+                        seq = payload.get("seq")
+                        meta = payload.get("meta", {})
+                        fname = meta.get("filename")
+                        uploader = payload.get("uploader")
+                        print(f"[CLIENT] FILE_AVAILABLE: uploader={uploader}, fname={fname}, seq={seq}")
+
+                        def on_download_click(e, seq=seq, fname=fname):
+                            req = {"type": "GET_FILE", "seq": seq, "filename": fname}
+                            try:
+                                proto.send_json(sclient, req)
+                                print(f"[CLIENT] GET_FILE envoyé pour {fname}")
+                            except Exception as ex:
+                                print(f"[CLIENT] Erreur GET_FILE: {ex}")
+
+                        messages.controls.append(ft.Row([ft.Text(f"{uploader} a partagé : {fname}"), ft.ElevatedButton("Télécharger", on_click=on_download_click)]))
+                        page.update()
+
+                    elif t == "SEND_FILE":
+                        meta = payload.get("meta", {})
+                        fname = meta.get("filename")
+                        data_b64 = payload.get("data", "")
+                        try:
+                            os.makedirs("downloads_client", exist_ok=True)
+                            data = base64.b64decode(data_b64)
+                            dst = os.path.join("downloads_client", fname)
+                            with open(dst, "wb") as f:
+                                f.write(data)
+                            print(f"[CLIENT] Fichier reçu et sauvegardé: {dst}")
+                            messages.controls.append(ft.Text(f"** Fichier reçu et enregistré : {dst} **", italic=True, color="green"))
+                            page.update()
+                        except Exception as ex:
+                            print(f"[CLIENT] Erreur sauvegarde: {ex}")
+                            messages.controls.append(ft.Text(f"Erreur sauvegarde fichier: {ex}", color="red"))
+                            page.update()
+
+                    else:
+                        text = str(payload)
+
+                else:
+                    text = raw.decode()
+
+                if text:
+                    parts = text.split("|")
+                    if parts[0] == "MSG":
+                        messages.controls.append(ft.Text(f"{parts[1]} : {parts[2]}"))
+                    elif parts[0] == "SYSTEM":
+                        messages.controls.append(ft.Text(parts[1], italic=True, color="grey"))
+                    page.update()
+            except Exception as ex:
+                print(f"[CLIENT] Erreur recevoir: {ex}")
                 break
 
     def connecter(e):
@@ -170,9 +238,9 @@ def main(page: ft.Page):
         pseudo_field,
         room_buttons,
         ft.ElevatedButton(content=ft.Text("Se connecter"), on_click=connecter),
-        ft.ElevatedButton(content=ft.Text("Envoyer un fichier (path)"), on_click=send_file_from_path),
+        file_path_field,
+        ft.ElevatedButton(content=ft.Text("Envoyer un fichier"), on_click=send_file_from_path),
         status,
-        ft.Row([file_path_field, ft.ElevatedButton(content=ft.Text("Envoyer (path)"), on_click=send_file_from_path)]),
         ft.Divider(),
         ft.Text("Messages", size=18),
         messages,
