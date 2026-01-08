@@ -40,14 +40,26 @@ class CustomServer:
                     pass
 
     # Kick un client
-    def kick_client(self, client_socket):
-        """Déconnecte un client par son socket"""
+    def kick_client(self, client_socket, pseudo=None, room=None):
+        """Déconnecte un client par son socket et notifie les autres"""
         try:
             # Envoyer un message de kick avant fermeture
-            client_socket.send("SYSTEM|Vous avez été déconnecté par l'administrateur".encode())
+            client_socket.send("SYSTEM|Vous avez été kické par l'administrateur".encode())
             client_socket.close()
         except:
             pass
+        
+        # Retirer le client de la liste
+        with self.clients_lock:
+            self.clients = [c for c in self.clients if c["socket"] != client_socket]
+        
+        # Notifier les autres clients
+        if pseudo:
+            kick_msg = f"SYSTEM|{pseudo} a été kické"
+            self.broadcast(kick_msg, room=room)
+        
+        # Mettre à jour l'UI
+        self._notify_ui()
 
     # Notifier l'UI d'un changement
     def _notify_ui(self):

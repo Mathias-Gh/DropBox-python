@@ -48,8 +48,8 @@ def start_admin_ui(server):
                         icon=ft.Icons.PERSON_REMOVE,
                         icon_color=ft.Colors.RED_400,
                         tooltip="Kick",
-                        data=client["socket"],
-                        on_click=lambda e: kick_client(e.control.data),
+                        data={"socket": client["socket"], "pseudo": pseudo, "room": room},
+                        on_click=lambda e: show_kick_confirmation(e.control.data),
                     )
 
                     clients_table.rows.append(
@@ -66,10 +66,44 @@ def start_admin_ui(server):
             clients_count.value = f"Clients connectés: {len(server.clients)}"
             page.update()
 
-        def kick_client(client_socket):
-            """Kick un client"""
-            server.kick_client(client_socket)
-            refresh_clients()
+        def show_kick_confirmation(client_data):
+            """Affiche un dialog de confirmation avant de kicker"""
+            pseudo = client_data["pseudo"]
+            
+            def close_dialog(e):
+                dialog.open = False
+                page.update()
+            
+            def confirm_kick(e):
+                dialog.open = False
+                page.update()
+                # Effectuer le kick
+                server.kick_client(
+                    client_data["socket"],
+                    pseudo=client_data["pseudo"],
+                    room=client_data["room"]
+                )
+                refresh_clients()
+            
+            dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("⚠️ Confirmer le kick"),
+                content=ft.Text(f"Voulez-vous vraiment kicker {pseudo} ?"),
+                actions=[
+                    ft.TextButton("Annuler", on_click=close_dialog),
+                    ft.ElevatedButton(
+                        "Kicker",
+                        on_click=confirm_kick,
+                        bgcolor=ft.Colors.RED_700,
+                        color=ft.Colors.WHITE,
+                    ),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            
+            page.overlay.append(dialog)
+            dialog.open = True
+            page.update()
 
         # ================================
         # Broadcast
