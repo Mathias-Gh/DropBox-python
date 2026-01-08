@@ -205,9 +205,46 @@ def main(page: ft.Page):
                     parts = text.split("|")
                     if parts[0] == "MSG":
                         messages.controls.append(ft.Text(f"{parts[1]} : {parts[2]}"))
+                    elif parts[0] == "ADMIN_BROADCAST":
+                        # Afficher une notification/dialog pour les messages admin
+                        admin_message = parts[1] if len(parts) > 1 else "Message du serveur"
+                        
+                        def close_notification(e):
+                            notification_dialog.open = False
+                            page.update()
+                        
+                        notification_dialog = ft.AlertDialog(
+                            modal=True,
+                            title=ft.Row([
+                                ft.Icon(ft.Icons.CAMPAIGN, color=ft.Colors.ORANGE_400),
+                                ft.Text("📢 Notification Admin", weight=ft.FontWeight.BOLD),
+                            ]),
+                            content=ft.Container(
+                                content=ft.Text(admin_message, size=14, color=ft.Colors.BLACK),
+                                padding=10,
+                                bgcolor=ft.Colors.AMBER_100,
+                                border_radius=8,
+                            ),
+                            actions=[
+                                ft.Button(
+                                    "OK",
+                                    on_click=close_notification,
+                                ),
+                            ],
+                            actions_alignment=ft.MainAxisAlignment.CENTER,
+                        )
+                        
+                        page.overlay.append(notification_dialog)
+                        notification_dialog.open = True
+                        
+                        # les messages sont ajoutés dans le chat pour historique
+                        messages.controls.append(
+                            ft.Text(f"🔔 {admin_message}", italic=True, color="orange", weight=ft.FontWeight.BOLD)
+                        )
+                        page.update()
                     elif parts[0] == "SYSTEM":
                         messages.controls.append(ft.Text(parts[1], italic=True, color="grey"))
-                    page.update()
+                        page.update()
             except (ConnectionError, OSError, socket.error) as ex:
                 print(f"[CLIENT] Connexion fermée: {ex}")
                 status.value = "Connexion perdue"
