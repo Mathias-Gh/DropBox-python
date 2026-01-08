@@ -6,6 +6,8 @@ import base64
 import uuid
 import os
 import json
+from pathlib import Path
+import telechargement as dl
 
 SERVER_IP = "127.0.0.1"
 SERVER_PORT = 54321
@@ -29,55 +31,29 @@ def main(page: ft.Page):
     message_field = ft.TextField(label="Message", width=350)
 
     room_buttons = ft.Row([
-        ft.ElevatedButton(content=ft.Text("Room 1"), on_click=lambda e: changer_room("room1")),
-        ft.ElevatedButton(content=ft.Text("Room 2"), on_click=lambda e: changer_room("room2")),
-        ft.ElevatedButton(content=ft.Text("Room 3"), on_click=lambda e: changer_room("room3")),
+        ft.Button(content=ft.Text("Room 1"), on_click=lambda e: changer_room("room1")),
+        ft.Button(content=ft.Text("Room 2"), on_click=lambda e: changer_room("room2")),
+        ft.Button(content=ft.Text("Room 3"), on_click=lambda e: changer_room("room3")),
     ])
 
-    # Text input for file path (no FilePicker to avoid compatibility issues)
-    file_path_field = ft.TextField(label="Chemin du fichier à envoyer", width=350)
+    # TextField pour le chemin du fichier
+    file_path_field = ft.TextField(label="Chemin du fichier à envoyer", width=350, read_only=True)
+    selected_file_path = None
     
-    # Button to download last file in current room
-    last_file_status = ft.Text("Aucun fichier dans cette room", color="grey", size=12)
+    def pick_file(e=None):
+        nonlocal selected_file_path
+        file_path = dl.pick_file()
+        
+        if file_path:
+            selected_file_path = file_path
+            file_path_field.value = file_path
+            file_path_field.color = "green"
+        else:
+            selected_file_path = None
+            file_path_field.value = ""
+            file_path_field.color = None
+        page.update()
     
-    def download_last_file_from_room(e=None):
-        nonlocal sclient
-        if not sclient:
-            status.value = "Connectez-vous d'abord"
-            status.color = "red"
-            page.update()
-            return
-        if not room:
-            status.value = "Rejoignez une room d'abord"
-            status.color = "red"
-            page.update()
-            return
-        
-        if room not in files_by_room:
-            status.value = f"Aucun fichier disponible dans {room}"
-            status.color = "orange"
-            page.update()
-            return
-        
-        file_info = files_by_room[room]
-        seq = file_info.get("seq")
-        fname = file_info.get("filename")
-        
-        req = {"type": "GET_FILE", "seq": seq, "filename": fname}
-        try:
-            proto.send_json(sclient, req)
-            print(f"[CLIENT] GET_FILE envoyé pour {fname}")
-            status.value = f"Téléchargement de {fname}..."
-            status.color = "blue"
-            page.update()
-        except Exception as ex:
-            print(f"[CLIENT] Erreur GET_FILE: {ex}")
-            status.value = f"Erreur lors du téléchargement: {ex}"
-            status.color = "red"
-            page.update()
-
-    download_button = ft.ElevatedButton(content=ft.Text("Télécharger dernier fichier"), on_click=download_last_file_from_room, disabled=True)
-
     def send_file_from_path(e=None):
         nonlocal sclient
         if not sclient:
@@ -85,82 +61,94 @@ def main(page: ft.Page):
             status.color = "red"
             page.update()
             return
+        
+        # Vérifier que le socket est toujours connecté
+        if not dl.check_socket_connection(sclient):
+            status.value = "Connexion perdue. Reconnectez-vous."
+            status.color = "red"
+            sclient = None
+            page.update()
+            return
+        
         if not room:
             status.value = "Rejoignez une room d'abord"
             status.color = "red"
             page.update()
             return
-        path = file_path_field.value.strip()
+        
+        path = file_path_field.value.strip() if file_path_field.value else (selected_file_path if selected_file_path else None)
+        
         if not path:
-            status.value = "Chemin vide"
+            status.value = "Sélectionnez un fichier d'abord"
             status.color = "red"
             page.update()
             return
-        if not os.path.isfile(path):
-            status.value = f"Fichier introuvable: {path}"
-            status.color = "red"
-            page.update()
-            return
+        
         try:
-            with open(path, "rb") as f:
-                b = f.read()
-            b64 = base64.b64encode(b).decode("ascii")
-            seq_id = uuid.uuid4().hex
-            obj = {
-                "type": "SEND_FILE",
-                "seq": seq_id,
-                "room": room,
-                "meta": {"filename": os.path.basename(path), "size": len(b)},
-                "data": b64,
-            }
-            print(f"[CLIENT] Envoi SEND_FILE: seq={seq_id}, room={room}, filename={os.path.basename(path)}")
-            proto.send_json(sclient, obj)
-            messages.controls.append(ft.Text(f"** Fichier envoyé : {os.path.basename(path)} ({len(b)} octets) **", italic=True, color="green"))
-            file_path_field.value = ""
+            result = dl.send_file_to_room(sclient, room, path)
+            if result["success"]:
+                messages.controls.append(ft.Text(f"** Fichier envoyé : {result['filename']} ({result['size']} octets) **", italic=True, color="green"))
+                file_path_field.value = ""
+                file_path_field.color = None
+                selected_file_path = None
+            else:
+                status.value = result["message"]
+                status.color = "red"
+            page.update()
+        except (OSError, socket.error, ConnectionError) as ex:
+            status.value = f"Erreur envoi fichier: {ex}"
+            status.color = "red"
+            sclient = None
             page.update()
         except Exception as ex:
             status.value = f"Erreur envoi fichier: {ex}"
             status.color = "red"
             page.update()
-            print(f"[CLIENT] Erreur: {ex}")
 
 
     # ----------------------------
     # Fonctions
     # ----------------------------
     def changer_room(new_room):
-        nonlocal room
+        nonlocal room, sclient
         if not sclient:
             status.value = "Connectez-vous d'abord"
             status.color = "red"
             page.update()
             return
+        
+        # Vérifier que le socket est toujours connecté
+        if not dl.check_socket_connection(sclient):
+            status.value = "Connexion perdue. Reconnectez-vous."
+            status.color = "red"
+            sclient = None
+            page.update()
+            return
+        
         old_room = room
         room = new_room
-        proto.send_message(sclient, f"ROOM|{room}".encode())
-        status.value = f"Vous êtes dans {room}"
-        status.color = "blue"
-        if old_room:
-            messages.controls.append(ft.Text(f"** Changement de room : {old_room} -> {room} **", italic=True, color="grey"))
-        else:
-            messages.controls.append(ft.Text(f"** Vous êtes dans {room} **", italic=True, color="grey"))
-        
-        # Update last file status when changing room
-        if room in files_by_room:
-            file_info = files_by_room[room]
-            last_file_status.value = f"Dernier fichier: {file_info.get('filename')} ({file_info.get('uploader')})"
-            last_file_status.color = "green"
-            download_button.disabled = False
-        else:
-            last_file_status.value = "Aucun fichier dans cette room"
-            last_file_status.color = "grey"
-            download_button.disabled = True
+        try:
+            proto.send_message(sclient, f"ROOM|{room}".encode())
+            status.value = f"Vous êtes dans {room}"
+            status.color = "blue"
+            if old_room:
+                messages.controls.append(ft.Text(f"** Changement de room : {old_room} -> {room} **", italic=True, color="grey"))
+            else:
+                messages.controls.append(ft.Text(f"** Vous êtes dans {room} **", italic=True, color="grey"))
+        except (OSError, socket.error, ConnectionError) as ex:
+            status.value = f"Erreur envoi room: {ex}"
+            status.color = "red"
+            sclient = None
+            print(f"[CLIENT] Erreur changer_room: {ex}")
         
         page.update()
 
     def recevoir():
+        nonlocal sclient
         while True:
             try:
+                if not sclient:
+                    break
                 raw = proto.recv_message(sclient)
                 if not raw:
                     break
@@ -175,53 +163,37 @@ def main(page: ft.Page):
                     t = payload.get("type")
                     print(f"[CLIENT] Reçu: type={t}, payload={payload}")
                     if t == "FILE_AVAILABLE":
-                        seq = payload.get("seq")
-                        meta = payload.get("meta", {})
-                        fname = meta.get("filename")
-                        uploader = payload.get("uploader")
-                        room_name = payload.get("room")
-                        print(f"[CLIENT] FILE_AVAILABLE: uploader={uploader}, fname={fname}, seq={seq}, room={room_name}")
+                        file_info = dl.handle_file_available(payload, files_by_room)
 
-                        # Store file info for this room
-                        if room_name:
-                            files_by_room[room_name] = {
-                                "seq": seq,
-                                "filename": fname,
-                                "uploader": uploader,
-                            }
-                            # Update UI if this is the current room
-                            if room == room_name:
-                                last_file_status.value = f"Dernier fichier: {fname} ({uploader})"
-                                last_file_status.color = "green"
-
-                        def on_download_click(e, seq=seq, fname=fname):
-                            req = {"type": "GET_FILE", "seq": seq, "filename": fname}
+                        def on_download_click(e, seq=file_info["seq"], fname=file_info["filename"]):
+                            nonlocal sclient
+                            if not dl.check_socket_connection(sclient):
+                                status.value = "Connexion perdue"
+                                status.color = "red"
+                                sclient = None
+                                page.update()
+                                return
                             try:
-                                proto.send_json(sclient, req)
-                                print(f"[CLIENT] GET_FILE envoyé pour {fname}")
-                            except Exception as ex:
-                                print(f"[CLIENT] Erreur GET_FILE: {ex}")
+                                dl.request_file_download(sclient, seq, fname)
+                            except (OSError, socket.error, ConnectionError) as ex:
+                                status.value = f"Erreur téléchargement: {ex}"
+                                status.color = "red"
+                                page.update()
 
-                        messages.controls.append(ft.Row([ft.Text(f"{uploader} a partagé : {fname}"), ft.ElevatedButton("Télécharger", on_click=on_download_click)]))
+                        messages.controls.append(ft.Row([ft.Text(f"{file_info['uploader']} a partagé : {file_info['filename']}"), ft.Button("Télécharger", on_click=on_download_click)]))
                         page.update()
 
                     elif t == "SEND_FILE":
                         meta = payload.get("meta", {})
                         fname = meta.get("filename")
                         data_b64 = payload.get("data", "")
-                        try:
-                            os.makedirs("downloads_client", exist_ok=True)
-                            data = base64.b64decode(data_b64)
-                            dst = os.path.join("downloads_client", fname)
-                            with open(dst, "wb") as f:
-                                f.write(data)
-                            print(f"[CLIENT] Fichier reçu et sauvegardé: {dst}")
-                            messages.controls.append(ft.Text(f"** Fichier reçu et enregistré : {dst} **", italic=True, color="green"))
-                            page.update()
-                        except Exception as ex:
-                            print(f"[CLIENT] Erreur sauvegarde: {ex}")
-                            messages.controls.append(ft.Text(f"Erreur sauvegarde fichier: {ex}", color="red"))
-                            page.update()
+                        
+                        result = dl.save_received_file(fname, data_b64)
+                        if result["success"]:
+                            messages.controls.append(ft.Text(f"** Fichier reçu et enregistré : {result['path']} **", italic=True, color="green"))
+                        else:
+                            messages.controls.append(ft.Text(f"Erreur sauvegarde fichier: {result['message']}", color="red"))
+                        page.update()
 
                     else:
                         text = str(payload)
@@ -236,8 +208,24 @@ def main(page: ft.Page):
                     elif parts[0] == "SYSTEM":
                         messages.controls.append(ft.Text(parts[1], italic=True, color="grey"))
                     page.update()
+            except (ConnectionError, OSError, socket.error) as ex:
+                print(f"[CLIENT] Connexion fermée: {ex}")
+                status.value = "Connexion perdue"
+                status.color = "red"
+                sclient = None
+                page.update()
+                break
             except Exception as ex:
                 print(f"[CLIENT] Erreur recevoir: {ex}")
+                if sclient:
+                    try:
+                        sclient.close()
+                    except:
+                        pass
+                sclient = None
+                status.value = "Erreur de connexion"
+                status.color = "red"
+                page.update()
                 break
 
     def connecter(e):
@@ -251,28 +239,72 @@ def main(page: ft.Page):
 
         try:
             sclient = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sclient.settimeout(5)  # Timeout de 5 secondes
             sclient.connect((SERVER_IP, SERVER_PORT))
+            sclient.settimeout(None)  # Retirer le timeout après connexion
+        except (socket.timeout, ConnectionRefusedError, OSError) as ex:
+            status.value = f"Erreur connexion: {ex}"
+            status.color = "red"
+            sclient = None
+            page.update()
+            return
         except Exception as ex:
             status.value = f"Erreur connexion: {ex}"
             status.color = "red"
+            if sclient:
+                try:
+                    sclient.close()
+                except:
+                    pass
+            sclient = None
             page.update()
             return
 
         # login sans room (use framing)
-        proto.send_message(sclient, f"LOGIN|{pseudo}".encode())
-        status.value = f"Connecté en tant que {pseudo}"
-        status.color = "green"
-        threading.Thread(target=recevoir, daemon=True).start()
+        try:
+            proto.send_message(sclient, f"LOGIN|{pseudo}".encode())
+            status.value = f"Connecté en tant que {pseudo}"
+            status.color = "green"
+            threading.Thread(target=recevoir, daemon=True).start()
+        except (OSError, socket.error, ConnectionError) as ex:
+            status.value = f"Erreur lors de l'envoi du login: {ex}"
+            status.color = "red"
+            try:
+                sclient.close()
+            except:
+                pass
+            sclient = None
+        
         page.update()
 
     def envoyer(e):
+        nonlocal sclient
         if not sclient:
+            status.value = "Connectez-vous d'abord"
+            status.color = "red"
+            page.update()
             return
         msg = message_field.value.strip()
         if not msg:
             return
-        proto.send_message(sclient, f"MSG|{msg}".encode())
-        message_field.value = ""
+        
+        # Vérifier que le socket est toujours connecté
+        if not dl.check_socket_connection(sclient):
+            status.value = "Connexion perdue. Reconnectez-vous."
+            status.color = "red"
+            sclient = None
+            page.update()
+            return
+        
+        try:
+            proto.send_message(sclient, f"MSG|{msg}".encode())
+            message_field.value = ""
+        except (OSError, socket.error, ConnectionError) as ex:
+            status.value = f"Erreur envoi message: {ex}"
+            status.color = "red"
+            sclient = None
+            print(f"[CLIENT] Erreur envoyer: {ex}")
+        
         page.update()
 
     # Layout
@@ -280,18 +312,19 @@ def main(page: ft.Page):
         ft.Text("Connexion", size=20, weight="bold"),
         pseudo_field,
         room_buttons,
-        ft.ElevatedButton(content=ft.Text("Se connecter"), on_click=connecter),
+        ft.Button(content=ft.Text("Se connecter"), on_click=connecter),
         ft.Divider(),
         ft.Text("Partage de fichiers", size=18, weight="bold"),
         file_path_field,
-        ft.ElevatedButton(content=ft.Text("Envoyer un fichier"), on_click=send_file_from_path),
-        last_file_status,
-        ft.ElevatedButton(content=ft.Text("Télécharger dernier fichier"), on_click=download_last_file_from_room),
+        ft.Row([
+            ft.Button(content=ft.Text("Sélectionner un fichier"), on_click=pick_file),
+            ft.Button(content=ft.Text("Envoyer un fichier"), on_click=send_file_from_path),
+        ]),
         status,
         ft.Divider(),
         ft.Text("Messages", size=18),
         messages,
-        ft.Row([message_field, ft.ElevatedButton(content=ft.Text("Envoyer"), on_click=envoyer)])
+        ft.Row([message_field, ft.Button(content=ft.Text("Envoyer"), on_click=envoyer)])
     ], expand=True))
 
-ft.app(target=main)
+ft.run(main)
