@@ -39,7 +39,6 @@ def main(page: ft.Page):
     
     # Button to download last file in current room
     last_file_status = ft.Text("Aucun fichier dans cette room", color="grey", size=12)
-    download_button = ft.ElevatedButton(content=ft.Text("Télécharger dernier fichier"), on_click=download_last_file_from_room, disabled=True)
     
     def download_last_file_from_room(e=None):
         nonlocal sclient
@@ -76,6 +75,8 @@ def main(page: ft.Page):
             status.value = f"Erreur lors du téléchargement: {ex}"
             status.color = "red"
             page.update()
+
+    download_button = ft.ElevatedButton(content=ft.Text("Télécharger dernier fichier"), on_click=download_last_file_from_room, disabled=True)
 
     def send_file_from_path(e=None):
         nonlocal sclient
