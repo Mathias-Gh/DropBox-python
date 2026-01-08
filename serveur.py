@@ -25,8 +25,12 @@ class CustomServer:
         """
         target_type: "all", "room", "mp"
         target: nom de la room ou pseudo (selon target_type)
+        Envoie un message avec format spécial pour afficher une notification côté client
         """
-        formatted_msg = f"SYSTEM|[ADMIN] {message}"
+        # Format avec date/heure pour la notification
+        timestamp = datetime.now().strftime("%d/%m/%Y %Hh%M")
+        formatted_msg = f"ADMIN_BROADCAST|Message du serveur le {timestamp} : {message}"
+        
         with self.clients_lock:
             for client in self.clients:
                 try:
