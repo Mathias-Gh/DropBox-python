@@ -2,11 +2,7 @@ import socket
 import threading
 import flet as ft
 from network import protocol as proto
-import base64
-import uuid
-import os
 import json
-from pathlib import Path
 import telechargement as dl
 
 SERVER_IP = "127.0.0.1"
@@ -17,6 +13,7 @@ def main(page: ft.Page):
     page.title = "Chat TCP - Flet"
     page.window_width = 500
     page.window_height = 600
+    page.theme_mode = ft.ThemeMode.LIGHT  # Mode clair par défaut
 
     sclient = None
     pseudo = ""
@@ -24,6 +21,25 @@ def main(page: ft.Page):
     
     # Tracker les fichiers disponibles par room
     files_by_room = {}  # Format: {"room1": {"seq": "...", "filename": "...", "uploader": "..."}, ...}
+
+    def toggle_theme(e):
+        """Bascule entre mode clair et sombre"""
+        if page.theme_mode == ft.ThemeMode.LIGHT:
+            page.theme_mode = ft.ThemeMode.DARK
+            theme_button.icon = ft.Icons.LIGHT_MODE
+            theme_button.tooltip = "Mode clair"
+        else:
+            page.theme_mode = ft.ThemeMode.LIGHT
+            theme_button.icon = ft.Icons.DARK_MODE
+            theme_button.tooltip = "Mode sombre"
+        page.update()
+
+    # Bouton dark mode en haut à droite
+    theme_button = ft.IconButton(
+        icon=ft.Icons.DARK_MODE,
+        tooltip="Mode sombre",
+        on_click=toggle_theme,
+    )
 
     pseudo_field = ft.TextField(label="Pseudo", width=300)
     messages = ft.Column(scroll="auto", expand=True)
@@ -344,8 +360,14 @@ def main(page: ft.Page):
         
         page.update()
 
-    # Layout
+    # Layout avec bouton dark mode en haut à droite
     page.add(ft.Column([
+        # Header avec bouton dark mode
+        ft.Row([
+            ft.Text("Chat TCP - DropBox", size=24, weight="bold", expand=True),
+            theme_button,
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+        ft.Divider(),
         ft.Text("Connexion", size=20, weight="bold"),
         pseudo_field,
         room_buttons,
