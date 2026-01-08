@@ -1,32 +1,6 @@
 import socket
 import threading
 import flet as ft
-
-SERVER_IP = "127.0.0.1"
-SERVER_PORT = 54321
-
-def main(page: ft.Page):
-    page.title = "Chat TCP - Flet"
-    page.window_width = 500
-    page.window_height = 600
-
-    sclient = None
-    pseudo = ""
-    room = None  # room par défaut
-
-    pseudo_field = ft.TextField(label="Pseudo", width=300)
-    messages = ft.Column(scroll="auto", expand=True)
-    status = ft.Text("Déconnecté", color="red")
-    message_field = ft.TextField(label="Message", width=350)
-
-    room_buttons = ft.Row([
-        ft.ElevatedButton("Room 1", on_click=lambda e: changer_room("room1")),
-        ft.ElevatedButton("Room 2", on_click=lambda e: changer_room("room2")),
-        ft.ElevatedButton("Room 3", on_click=lambda e: changer_room("room3")),
-    ])
-import socket
-import threading
-import flet as ft
 from network import protocol as proto
 
 SERVER_IP = "127.0.0.1"
