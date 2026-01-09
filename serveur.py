@@ -84,6 +84,13 @@ class CustomServer:
     def dialoguer(self, sclient: socket.socket, adclient, callback_tchao):
         print(f"Connexion depuis {adclient}")
 
+        self.command_handlers = {
+            "MSG": self.handle_msg,
+            "ROOM": self.handle_room,
+            "QUIT": self.handle_quit,
+        }
+
+
         pseudo = None
         room = None
 
@@ -119,73 +126,15 @@ class CustomServer:
 
                 msg = ProtocolParser.parse(raw.decode())
 
-                # MESSAGE
-                if msg.command == "MSG":
-                    with self.clients_lock:
-                        for c in self.clients:
-                            if c["socket"] == sclient:
-                                c["last_message_time"] = datetime.now()
+                handler = self.command_handlers.get(msg.command)
+                if not handler:
+                    proto.send_message(sclient, b"ERROR|Commande inconnue")
+                    continue
 
-                    self._notify_ui()
-                    self.broadcast(f"MSG|{pseudo}|{msg.args[0]}", room=room)
-
-                # CHANGE ROOM
-                elif msg.command == "ROOM":
-                    old_room = room
-                    room = msg.args[0]
-
-                    with self.clients_lock:
-                        for c in self.clients:
-                            if c["socket"] == sclient:
-                                c["room"] = room
-
-                    self._notify_ui()
-
-                    if old_room:
-                        self.broadcast(
-                            f"SYSTEM|{pseudo} a quitté la room {old_room}",
-                            room=old_room
-                        )
-
-                    self.broadcast(
-                        f"SYSTEM|{pseudo} a rejoint la room {room}",
-                        room=room
-                    )
-
-                # SEQUENCE
-                elif msg.command == "BEGIN_SEQUENCE":
-                    seq_id = msg.args[0] if msg.args else str(int(time.time()))
-
-                    try:
-                        self.seq_mgr.begin_sequence(seq_id)
-                    except RuntimeError:
-                        proto.send_message(
-                            sclient,
-                            f"ERROR|Sequence {seq_id} déjà existante".encode()
-                        )
-                        continue
-
-                    def process_sequence(sock, sid):
-                        time.sleep(2)
-                        result = {"status": "ok"}
-                        try:
-                            proto.send_message(
-                                sock,
-                                f"COMPLETE|{sid}|{result}".encode()
-                            )
-                        except Exception:
-                            pass
-                        self.seq_mgr.complete_sequence(sid, result)
-
-                    threading.Thread(
-                        target=process_sequence,
-                        args=(sclient, seq_id),
-                        daemon=True
-                    ).start()
-
-                # QUIT
-                elif msg.command == "QUIT":
+                should_quit = handler(sclient, msg, client_info)
+                if should_quit:
                     break
+
 
         except (ProtocolError, ConnectionResetError):
             pass
@@ -225,9 +174,9 @@ class CustomServer:
     # ------------------------
     def start(self, with_admin_ui=True):
         sserveur = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sserveur.bind(("127.0.0.1", 54321))
+        sserveur.bind(("10.160.32.75", 54321))
         sserveur.listen()
-        print("Serveur démarré sur 127.0.0.1:54321")
+        print("Serveur démarré sur 10.160.32.75 :54321")
 
         threading.Thread(
             target=self._run_socket_server,

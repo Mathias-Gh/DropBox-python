@@ -3,7 +3,7 @@ import threading
 import flet as ft
 from network import protocol as proto
 
-SERVER_IP = "127.0.0.1"
+SERVER_IP = "10.160.32.75"
 SERVER_PORT = 54321
 
 
