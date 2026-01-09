@@ -2,7 +2,6 @@ import socket
 import threading
 import time
 from datetime import datetime
-
 from parser import ProtocolParser, ProtocolError
 from network import protocol as proto
 from network import state_machine as sm
@@ -15,11 +14,48 @@ class CustomServer:
         self.on_clients_change = None  # callback UI admin
         self.seq_mgr = sm.IntermediateStateManager()
 
+    def handle_msg(self, sclient, msg, client_info):
+        client_info["last_message_time"] = datetime.now()
+
+        self._notify_ui()
+
+        self.broadcast(
+            f"MSG|{client_info['pseudo']}|{msg.args[0]}",
+            room=client_info["room"]
+        )
+
+        return False  # ne quitte pas la boucle
+
+
+    def handle_room(self, sclient, msg, client_info):
+        old_room = client_info["room"]
+        new_room = msg.args[0]
+
+        client_info["room"] = new_room
+
+        self._notify_ui()
+
+        if old_room:
+            self.broadcast(
+                f"SYSTEM|{client_info['pseudo']} a quitté la room {old_room}",
+                room=old_room
+            )
+
+        self.broadcast(
+            f"SYSTEM|{client_info['pseudo']} a rejoint la room {new_room}",
+            room=new_room
+        )
+
+        return False
+
+
+    def handle_quit(self, sclient, msg, client_info):
+        return True
+
     # ------------------------
     # BROADCAST
     # ------------------------
     def broadcast(self, message: str, room=None):
-        """Diffuse un message à tous les clients ou à une room"""
         with self.clients_lock:
             for client in self.clients:
                 if room is None or client["room"] == room:
